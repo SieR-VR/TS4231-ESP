@@ -2,8 +2,6 @@
 #include <math.h>
 
 #include "driver/mcpwm.h"
-#include "soc/mcpwm_periph.h"
-
 #include "pulse_mcpwm.h"
 
 const int ticksPerMicrosec = 80; // because 80MHz
@@ -38,15 +36,14 @@ const int sweepEndTicks   = sweepEndTime   * ticksPerMicrosec;
 xQueueHandle sync_pulse_queue; // sync_pulse_t
 xQueueHandle sweep_pulse_queue; // pulse_timestamp_t
 
-static void IRAM_ATTR isr_handler(void *)
+static bool IRAM_ATTR isr_handler(mcpwm_unit_t mcpwm, mcpwm_capture_channel_id_t cap_channel, const cap_event_data_t *edata, void *)
 {
     static uint32_t whenRising = 0;
-    uint32_t status = MCPWM0.int_st.val & MCPWM_CAP0_INT_ENA;
 
-    if (status)
-        whenRising = mcpwm_capture_signal_get_value(MCPWM_UNIT_0, MCPWM_SELECT_CAP0);
-    else if (whenRising) {
-        uint32_t whenFalling = mcpwm_capture_signal_get_value(MCPWM_UNIT_0, MCPWM_SELECT_CAP0);
+    if (edata->cap_edge & MCPWM_POS_EDGE)
+        whenRising = edata->cap_value;
+    else {
+        uint32_t whenFalling = edata->cap_value;
         uint32_t pulse_duration = whenFalling - whenRising;
 
         if (minSyncPulseWidth <= pulse_duration && pulse_duration <= maxSyncPulseWidth) {
@@ -54,15 +51,23 @@ static void IRAM_ATTR isr_handler(void *)
             pulse.pulse_duration = pulse_duration;
             pulse.pulse_timestamp.pulse_start_time = whenRising;
             pulse.pulse_timestamp.pulse_end_time = whenFalling;
-            xQueueSendFromISR(sync_pulse_queue, &pulse, NULL);
+            xQueueSendFromISR(sync_pulse_queue, &pulse, 0);
         }
-        else if (pulse_duration < minSweepPulseWidth) {
+        // else if (pulse_duration < minSweepPulseWidth) {
+        //     pulse_timestamp_t pulse_timestamp;
+        //     pulse_timestamp.pulse_start_time = whenRising;
+        //     pulse_timestamp.pulse_end_time = whenFalling;
+        //     xQueueSendFromISR(sweep_pulse_queue, &pulse_timestamp, NULL);
+        // }
+        else {
             pulse_timestamp_t pulse_timestamp;
             pulse_timestamp.pulse_start_time = whenRising;
             pulse_timestamp.pulse_end_time = whenFalling;
-            xQueueSendFromISR(sweep_pulse_queue, &pulse_timestamp, NULL);
+            xQueueSendFromISR(sweep_pulse_queue, &pulse_timestamp, 0);
         }
     }
+
+    return true;
 }
 
 esp_err_t pulseSetup()
@@ -75,12 +80,17 @@ esp_err_t pulseSetup()
     if (err != ESP_OK)
         return err;
 
-    err = mcpwm_capture_enable(MCPWM_UNIT_0, MCPWM_SELECT_CAP0, MCPWM_BOTH_EDGE, 0);
+    mcpwm_capture_config_t cap_config;
+    cap_config.cap_edge = MCPWM_BOTH_EDGE;
+    cap_config.cap_prescale = 1;
+    cap_config.capture_cb = isr_handler;
+    cap_config.user_data = NULL;
+
+    err = mcpwm_capture_enable_channel(MCPWM_UNIT_0, MCPWM_SELECT_CAP0, &cap_config);
     if (err != ESP_OK)
         return err;
 
-    mcpwm_isr_register(MCPWM_UNIT_0, isr_handler, NULL, ESP_INTR_FLAG_IRAM, NULL);
-    MCPWM0.int_ena.val = MCPWM_CAP0_INT_ENA;
+    return err;
 }
 
 bool pulseDataIsReady(pulse_data_t& pulse_data) {
@@ -89,14 +99,14 @@ bool pulseDataIsReady(pulse_data_t& pulse_data) {
     bool result = true;
 
     // wait max 120hz
-    result = xQueueReceive(sync_pulse_queue, &sync_pulse, ((1000 / 120) / portTICK_PERIOD_MS));
+    result = xQueueReceive(sync_pulse_queue, &sync_pulse, 8);
     if (!result)
         return false;
 
     uint32_t sync_pulse_duration_48mhz = sync_pulse.pulse_duration * 3 / 5;
     uint8_t sync_pulse_data = (sync_pulse_duration_48mhz - 2501) / 500;
 
-    result = xQueueReceive(sweep_pulse_queue, &sweep_pulse, sweepEndTicks);
+    result = xQueueReceive(sweep_pulse_queue, &sweep_pulse, 7);
     if (!result)
         return false;
 

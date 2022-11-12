@@ -2,6 +2,9 @@
 #include <Arduino.h>
 #include <math.h>
 
+#define AXIS_X 0
+#define AXIS_Y 1
+
 #include "pulse_mcpwm.h"
 
 void setup()
@@ -20,6 +23,8 @@ int x = 0, y = 0;
 float xAngle = 0, yAngle = 0;
 float prevX = 0.f, prevY = 0.f;
 
+pulse_data_t pulse_data;
+
 float mapf(float x, float in_min, float in_max, float out_min, float out_max)
 {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
@@ -36,31 +41,25 @@ float clampf(float x, float min, float max)
 
 void loop()
 {
-  if (pulseDataIsReady())
+  if (pulseDataIsReady(pulse_data))
   {
-    if (pulse_data.isReady)
-    {
-      if (pulse_data.axis == 0)
-      {
-        rawX = (pulse_data.sweep_capture - pulse_data.pulse_capture);
-      }
-      else
-      {
-        rawY = (pulse_data.sweep_capture - pulse_data.pulse_capture);
-      }
+    if (pulse_data.axis == AXIS_X) {
+      rawX = pulse_data.sweep_pulse.pulse_start_time - pulse_data.sync_pulse.pulse_end_time;
+    } 
+    else {
+      rawY = pulse_data.sweep_pulse.pulse_start_time - pulse_data.sync_pulse.pulse_end_time;
     }
-    armSyncPulse();
   }
 
-  if (1222 > rawX || rawX >= 6787)
+  if (rawX < 96960 || 542960 <= rawX)
     xAngle = prevX;
   else
-    xAngle = mapf(rawX, 1222, 6787, 0, 120);
+    xAngle = mapf(rawX, 96960, 542960, 0, 120);
 
-  if (1222 > rawY || rawY >= 6787)
+  if (rawY < 96960 || 542960 <= rawY)
     yAngle = prevY;
   else
-    yAngle = mapf(rawY, 1222, 6787, 0, 120);
+    yAngle = mapf(rawY, 96960, 542960, 0, 120);
 
   Serial.printf("x: %f, y: %f\n", xAngle, yAngle);
 

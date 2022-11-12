@@ -25,6 +25,6 @@ typedef struct {
 } pulse_data_t;
 
 esp_err_t pulseSetup();
-bool pulseDataIsReady();
+bool pulseDataIsReady(pulse_data_t& pulse_data);
 
 #endif // PULSE_H
