@@ -1,29 +1,5 @@
 {
     "files.associations": {
-        "*.tcc": "cpp",
-        "ctime": "cpp",
-        "iomanip": "cpp",
-        "limits": "cpp",
-        "numeric": "cpp",
-        "streambuf": "cpp",
-        "tuple": "cpp",
-        "type_traits": "cpp",
-        "utility": "cpp",
-        "atomic": "cpp",
-        "deque": "cpp",
-        "string": "cpp",
-        "unordered_map": "cpp",
-        "unordered_set": "cpp",
-        "vector": "cpp",
-        "iterator": "cpp",
-        "memory_resource": "cpp",
-        "optional": "cpp",
-        "string_view": "cpp",
-        "fstream": "cpp",
-        "istream": "cpp",
-        "ostream": "cpp",
-        "sstream": "cpp",
-        "system_error": "cpp",
         "functional": "cpp"
     }
 }
