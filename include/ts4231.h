@@ -21,6 +21,8 @@ const int maxSyncPulseWidth = (135 + MARGIN) * TICKS_PER_MICROSEC;
 const int sweepStartTicks = sweepStartTime * TICKS_PER_MICROSEC;
 const int sweepEndTicks = sweepEndTime * TICKS_PER_MICROSEC;
 
+const int interSyncTicks = interSyncOffset * TICKS_PER_MICROSEC;
+
 #endif
 
 #endif

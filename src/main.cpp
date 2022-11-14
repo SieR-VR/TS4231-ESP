@@ -1,6 +1,9 @@
-#define CONFIG_ESP_TIMER_INTERRUPT_LEVEL 3
 #include <Arduino.h>
 #include <math.h>
+
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 #include "ts4231_mcpwm.h"
 
@@ -10,100 +13,137 @@
 // hw_timer_t *timer = NULL;
 // TS4231_Interrupt ts4231(14);
 
-TS4231_MCPWM ts4231_12(12, 0);
-TS4231_MCPWM ts4231_14(14, 1);
+const char *ssid = "Asus_Router_2.4G";
+const char *password = "1810022a+";
 
-sync_pulse_data_t sync_pulse_data_12, sync_pulse_data_14;
-sweep_pulse_data_t sweep_pulse_data_12, sweep_pulse_data_14;
+uint8_t packet[17] = {0};
 
-bool sync_from_12 = false, sync_from_14 = false;
-bool sweep_from_12 = false, sweep_from_14 = false;
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
-int rawX[2] = {0, 0}, rawY[2] = {0, 0};
-float xAngle[2] = {0, 0}, yAngle[2] = {0, 0};
+uint32_t mcpwm_pins[4] = {12, 14, 27, 26};
+TS4231_MCPWM *ts4231s[4];
+sync_pulse_data_t sync_pulse_data[4];
+sweep_pulse_data_t sweep_pulse_data[4];
+bool sync_from[4] = {false, false, false, false};
+bool sweep_from[4] = {false, false, false, false};
 
 void setup()
 {
   Serial.begin(115200);
-  // timer = timerBegin(0, 2, true);
 
-  ts4231_12.init();
-  ts4231_14.init();
+  for (int i = 0; i < 4; i++)
+  {
+    ts4231s[i] = new TS4231_MCPWM(mcpwm_pins[i], i);
+    ts4231s[i]->init();
+  }
+
+  Serial.println("TS4231 Setup complete");
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    if (type == WS_EVT_CONNECT)
+    {
+      Serial.printf("ws[%s][%u] connect\n", server->url(), client->id());
+    }
+
+    if (type == WS_EVT_DATA)
+    {
+      client->binary(packet, 17);
+    }
+  });
+  server.addHandler(&ws);
+  server.begin();
 }
 
-float mapf(float x, float in_min, float in_max, float out_min, float out_max)
+bool every(bool *arr, size_t len)
 {
-  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
-bool in_range(uint32_t x, uint32_t min, uint32_t max)
-{
-  return (x >= min) && (x <= max);
+  for (int i = 0; i < len; i++)
+  {
+    if (!arr[i])
+      return false;
+  }
+  return true;
 }
 
 void loop()
-{
+{ 
   while (true)
   {
-    sync_from_12 = ts4231_12.get_sync_pulse(&sync_pulse_data_12);
-    if (sync_from_12)
-      break;
-    
-    sync_from_14 = ts4231_14.get_sync_pulse(&sync_pulse_data_14);
-    if (sync_from_14)
+    bool sync_ready = false;
+
+    for (int i = 0; i <  3; i++)
+    {
+      sync_from[i] = ts4231s[i]->get_sync_pulse(&sync_pulse_data[i]);
+      if (sync_from[i])
+      {
+        sync_ready = true;
+        break;
+      }
+    }
+
+    if (sync_ready)
       break;
   }
+
+  sync_from[3] = ts4231s[3]->get_sync_pulse(&sync_pulse_data[3]); // 4th sensor has different timer
 
   int64_t sync_pulse_timestamp = esp_timer_get_time();
 
   while ((esp_timer_get_time() - sync_pulse_timestamp) < sweepEndTime)
   {
-    if (!sweep_from_12)
-      sweep_from_12 = ts4231_12.get_sweep_pulse(&sweep_pulse_data_12);
-    if (!sweep_from_14)
-      sweep_from_14 = ts4231_14.get_sweep_pulse(&sweep_pulse_data_14);
+    for (int i = 0; i < 4; i++)
+    {
+      if (!sweep_from[i])
+        sweep_from[i] = ts4231s[i]->get_sweep_pulse(&sweep_pulse_data[i]);
+    }
 
-    if (sweep_from_12 && sweep_from_14)
+    if (every(sweep_from, 4))
       break;
   }
 
   bool is_y;
-  uint32_t sync_pulse;
+  uint32_t sync_pulse_mcpwm_0 = 0;
+  uint32_t sync_pulse_mcpwm_1 = 0;
 
-  if (sync_from_12) {
-    is_y = sync_pulse_data_12.axis;
-    sync_pulse = sync_pulse_data_12.sync_pulse.pulse_end_time;
-  }
-  else {
-    is_y = sync_pulse_data_14.axis;
-    sync_pulse = sync_pulse_data_14.sync_pulse.pulse_end_time;
-  }
-  
-  if (is_y) {
-    uint32_t t12 = sweep_pulse_data_12.sweep_pulse.pulse_start_time - sync_pulse;
-    uint32_t t14 = sweep_pulse_data_14.sweep_pulse.pulse_start_time - sync_pulse;
-
-    rawY[0] = in_range(t12, sweepStartTicks, sweepEndTicks) ? t12 : rawY[0];
-    rawY[1] = in_range(t14, sweepStartTicks, sweepEndTicks) ? t14 : rawY[1];
-  }
-  else {
-    uint32_t t12 = sweep_pulse_data_12.sweep_pulse.pulse_start_time - sync_pulse;
-    uint32_t t14 = sweep_pulse_data_14.sweep_pulse.pulse_start_time - sync_pulse;
-
-    rawX[0] = in_range(t12, sweepStartTicks, sweepEndTicks) ? t12 : rawX[0];
-    rawX[1] = in_range(t14, sweepStartTicks, sweepEndTicks) ? t14 : rawX[1];
+  for (int i = 0; i < 3; i++)
+  {
+    if (sync_from[i])
+    {
+      sync_pulse_mcpwm_0 = sync_pulse_data[i].sync_pulse.pulse_start_time + interSyncTicks;
+      is_y = sync_pulse_data[i].axis;
+      break;
+    }
   }
 
-  for (int i = 0; i < 2; i++) {
-    xAngle[i] = mapf(rawX[i], sweepStartTicks, sweepEndTicks, 0, 120);
-    yAngle[i] = mapf(rawY[i], sweepStartTicks, sweepEndTicks, 0, 120);
+  if (sync_from[3])
+    sync_pulse_mcpwm_1 = sync_pulse_data[3].sync_pulse.pulse_start_time + interSyncTicks;
+
+  packet[0] = is_y ? 1 : 0;
+  if (sweep_from[0])
+    *(uint32_t *)&packet[1] = sweep_pulse_data[0].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;
+  if (sweep_from[1])
+    *(uint32_t *)&packet[5] = sweep_pulse_data[1].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;  
+  if (sweep_from[2])
+    *(uint32_t *)&packet[9] = sweep_pulse_data[2].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;
+  if (sweep_from[3])
+    *(uint32_t *)&packet[13] = sweep_pulse_data[3].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_1;
+
+  for (int i = 0; i < 4; i++)
+  {
+    sync_from[i] = false;
+    sweep_from[i] = false;
   }
-
-  Serial.printf("X12: %f, X14: %f, Y12: %f, Y14: %f\n", xAngle[0], xAngle[1], yAngle[0], yAngle[1]);
-
-  sync_from_12 = false;
-  sync_from_14 = false;
-
-  sweep_from_12 = false;
-  sweep_from_14 = false;
 }
