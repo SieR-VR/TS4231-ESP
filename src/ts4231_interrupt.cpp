@@ -68,7 +68,7 @@ static void IRAM_ATTR interrupt_handler(void *data)
         {
             xQueueSendFromISR(ts4231_interrupt->sync_pulse_queue, &pulse, NULL);
         }
-        else
+        else if (minSweepPulseWidth <= pulse_duration && pulse_duration <= maxSweepPulseWidth)
         {
             xQueueSendFromISR(ts4231_interrupt->sweep_pulse_queue, &pulse, NULL);
         }

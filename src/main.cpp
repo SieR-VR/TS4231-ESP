@@ -84,7 +84,7 @@ void loop()
   {
     bool sync_ready = false;
 
-    for (int i = 0; i <  3; i++)
+    for (int i = 0; i < 3; i++)
     {
       sync_from[i] = ts4231s[i]->get_sync_pulse(&sync_pulse_data[i]);
       if (sync_from[i])
@@ -122,24 +122,36 @@ void loop()
   {
     if (sync_from[i])
     {
-      sync_pulse_mcpwm_0 = sync_pulse_data[i].sync_pulse.pulse_start_time + interSyncTicks;
+      sync_pulse_mcpwm_0 = sync_pulse_data[i].sync_pulse.pulse_start_time;
       is_y = sync_pulse_data[i].axis;
       break;
     }
   }
 
   if (sync_from[3])
-    sync_pulse_mcpwm_1 = sync_pulse_data[3].sync_pulse.pulse_start_time + interSyncTicks;
+    sync_pulse_mcpwm_1 = sync_pulse_data[3].sync_pulse.pulse_start_time;
 
   packet[0] = is_y ? 1 : 0;
-  if (sweep_from[0])
-    *(uint32_t *)&packet[1] = sweep_pulse_data[0].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;
-  if (sweep_from[1])
-    *(uint32_t *)&packet[5] = sweep_pulse_data[1].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;  
-  if (sweep_from[2])
-    *(uint32_t *)&packet[9] = sweep_pulse_data[2].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;
-  if (sweep_from[3])
-    *(uint32_t *)&packet[13] = sweep_pulse_data[3].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_1;
+  if (sweep_from[0]) {
+    uint32_t data = sweep_pulse_data[0].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;
+    if (sweepStartTicks < data && data < sweepEndTicks)
+      *(uint32_t *)&packet[1] = data;
+  }
+  if (sweep_from[1]) {
+    uint32_t data = sweep_pulse_data[1].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;
+    if (sweepStartTicks < data && data < sweepEndTicks)
+      *(uint32_t *)&packet[5] = data;
+  }
+  if (sweep_from[2]) {
+    uint32_t data = sweep_pulse_data[2].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_0;
+    if (sweepStartTicks < data && data < sweepEndTicks)
+      *(uint32_t *)&packet[9] = data;
+  }
+  if (sync_from[3] && sweep_from[3]) {
+    uint32_t data = sweep_pulse_data[3].sweep_pulse.pulse_start_time - sync_pulse_mcpwm_1;
+    if (sweepStartTicks < data && data < sweepEndTicks)
+      *(uint32_t *)&packet[13] = data;
+  }
 
   for (int i = 0; i < 4; i++)
   {

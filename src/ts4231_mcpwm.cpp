@@ -118,7 +118,7 @@ static bool IRAM_ATTR isr_handler(
         {
             xQueueSendFromISR(ts4231_mcpwm->sync_pulse_queue, &pulse, NULL);
         }
-        else
+        else if (minSweepPulseWidth <= pulse_duration && pulse_duration <= maxSweepPulseWidth)
         {
             xQueueSendFromISR(ts4231_mcpwm->sweep_pulse_queue, &pulse, NULL);
         }
